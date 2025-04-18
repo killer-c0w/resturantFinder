@@ -1,0 +1,6 @@
+@resturantFinder_HostAddress = http://localhost:5062
+
+GET {{resturantFinder_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
