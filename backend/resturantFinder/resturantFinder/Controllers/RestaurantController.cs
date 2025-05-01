@@ -15,58 +15,97 @@ namespace resturantFinder.Controllers
         }
 
         [HttpGet(Name = "GetRestaurants")]
-        public IEnumerable<Restaurant>? GetRestaurantNoAddr(string? r_name = null, string? amenity = null, string? cuisine = null, string? opening_hours = null)
+        public async Task<IEnumerable<Restaurant>?> GetRestaurantNoAddr(string? name = null, string? amenity = null, string? cuisine = null, string? opening_hours = null, string? city = null)
         {
-            if (r_name == null & amenity == null & cuisine == null & opening_hours == null)
+            if (name == null & amenity == null & cuisine == null & opening_hours == null)
             {
                 return null;
             }
             string connectionString = "Server=localhost;Database=AZRestaurantsDB;User Id=postgres;Password=password;";
-            using NpgsqlDataSource dataSource = NpgsqlDataSource.Create(connectionString);
+            await using NpgsqlDataSource dataSource = NpgsqlDataSource.Create(connectionString);
 
-            string commandText = "SELECT * FROM restaurant WHERE ";
             // build the command based on supplied parameters
-            int num_parms = 0;
-            if (r_name != null)
+            var conditions = new List<string>();
+            List<NpgsqlParameter> parameters = [];
+
+            if (name != null)
             {
-                num_parms++;
-                commandText += $"r_name = '{r_name}'";
+                conditions.Add("name = @name");
+                parameters.Add(new NpgsqlParameter("name", name));
             }
+
             if (amenity != null)
             {
-                if (num_parms > 0){commandText += " AND ";}
-                num_parms++;
-                commandText += $"amenity LIKE '%{amenity}%'";
+                conditions.Add("amenity LIKE @amenity");
+                parameters.Add(new NpgsqlParameter("amenity", $"%{amenity}%"));
             }
+
             if (cuisine != null)
             {
-                if (num_parms > 0) { commandText += " AND "; }
-                num_parms++;
-                commandText += $"cuisine LIKE '%{cuisine}%'";
+                conditions.Add("cuisine LIKE @cuisine");
+                parameters.Add(new NpgsqlParameter("cuisine", $"%{cuisine}%"));
             }
+
             if (opening_hours != null)
             {
-                if (num_parms > 0) { commandText += " AND "; }
-                num_parms++;
-                commandText += $"opening_hours LIKE '%{opening_hours}%'";
+                conditions.Add("opening_hours LIKE @opening_hours");
+                parameters.Add(new NpgsqlParameter("opening_hours", $"%{opening_hours}%"));
             }
-            Console.WriteLine($"Command: {commandText}");
-
-            NpgsqlCommand cmd = dataSource.CreateCommand(commandText);
-            var reader = cmd.ExecuteReaderAsync();
-            List<Restaurant> queryResults = [];
-            while (reader.Result.Read())
+            if (city != null)
             {
-                var id_res = reader.Result.GetString(0);
-                var name_res = reader.Result.GetString(1);
-                var amenity_res = reader.Result.IsDBNull(2) ? "" : reader.Result.GetString(2);
-                var cuisine_res = reader.Result.IsDBNull(3) ? "" : reader.Result.GetString(3);
-                var hours_res = reader.Result.IsDBNull(4) ? "" : reader.Result.GetString(4);
-                //queryResults.Add($"Location ID: {id_res}, Name: {name_res}, Amenity: {amenity_res}, Cuisine: {cuisine_res}, Hours: {hours_res}");
-                queryResults.Add(new Restaurant(id_res, name_res, amenity_res, cuisine_res, hours_res));
+                conditions.Add("city = @city");
+                parameters.Add(new NpgsqlParameter("city", city));
             }
 
-            dataSource.Dispose();   // maybe use a try finally block here
+            string commandText = $"SELECT * FROM restaurant NATURAL JOIN address WHERE {string.Join(" AND ", conditions)}";
+
+            // query the database and add responses to a list
+            List<Restaurant> queryResults = [];
+
+            try 
+            {
+                await using var connection = await dataSource.OpenConnectionAsync();
+                NpgsqlCommand cmd = new(commandText, connection);
+                foreach (var parameter in parameters)
+                {
+                    cmd.Parameters.Add(parameter);
+                }
+
+                _logger.LogInformation($"Command: {cmd.CommandText}");
+
+                await using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var id_res = reader.GetString(0);
+                    var name_res = reader.GetString(1);
+                    var amenity_res = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                    var cuisine_res = reader.IsDBNull(3) ? "" : reader.GetString(3);
+                    var hours_res = reader.IsDBNull(4) ? "" : reader.GetString(4);
+                    var building_res = reader.IsDBNull(5) ? -1 : reader.GetInt32(5);
+                    var address_res = reader.GetString(6);
+                    var city_res = reader.GetString(7);
+                    var state_res = reader.IsDBNull(8) ? "" : reader.GetString(8);
+                    var zip_res = reader.GetString(9);
+
+                    queryResults.Add(new Restaurant(
+                        id: id_res, 
+                        name: name_res, 
+                        amenity: amenity_res, 
+                        cuisine: cuisine_res, 
+                        openingHours: hours_res,
+                        address: string.Join(' ', [building_res.ToString(), address_res, city_res, state_res, zip_res])));
+                }
+            }
+            catch (NpgsqlException ex)
+            {
+                _logger.LogError(ex, "An error occurred while executing the query.");
+                return null;
+            }
+            finally
+            {
+                // Dispose of the data source
+                dataSource.Dispose();
+            }
 
             return queryResults;
         }
