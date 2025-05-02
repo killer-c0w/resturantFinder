@@ -111,9 +111,11 @@ namespace resturantFinder.Controllers
         }
 
         [HttpGet("AddRestaurant")]
-        public async Task<IActionResult> AddRestaurant(string name, string address, string? amenity = null, string? cuisine = null, string? opening_hours = null)
+        public async Task<IActionResult> AddRestaurant(string name, string street_addr, string city, 
+            string zipcode, string? amenity = null, string? cuisine = null, string? opening_hours = null, 
+            string? building_number = null, string? state_abrv = null)
         {
-            if (name == null || address == null)
+            if (name == null || street_addr == null || city == null || zipcode == null)
             {
                 return BadRequest("Missing required parameters.");
             }
@@ -121,14 +123,24 @@ namespace resturantFinder.Controllers
             await using NpgsqlDataSource dataSource = NpgsqlDataSource.Create(connectionString);
             // build the command based on supplied parameters
             var values = new List<string>();
-            List<NpgsqlParameter> parameters = [];
+            List<NpgsqlParameter> rest_parameters = [];
+            List<NpgsqlParameter> addr_parameters = [];
 
-            parameters.Add(new NpgsqlParameter("name", name));
-            parameters.Add(new NpgsqlParameter("amenity", amenity == null ? DBNull.Value : amenity) { IsNullable=true});
-            parameters.Add(new NpgsqlParameter("cuisine", cuisine == null ? DBNull.Value : cuisine) { IsNullable = true });
-            parameters.Add(new NpgsqlParameter("opening_hours", opening_hours == null ? DBNull.Value : opening_hours) { IsNullable = true });
-            string commandText = $"INSERT INTO restaurant VALUES ((SELECT MAX(locid) + 1 FROM restaurant), " +
+            rest_parameters.Add(new NpgsqlParameter("name", name));
+            rest_parameters.Add(new NpgsqlParameter("amenity", amenity == null ? DBNull.Value : amenity) { IsNullable=true});
+            rest_parameters.Add(new NpgsqlParameter("cuisine", cuisine == null ? DBNull.Value : cuisine) { IsNullable = true });
+            rest_parameters.Add(new NpgsqlParameter("opening_hours", opening_hours == null ? DBNull.Value : opening_hours) { IsNullable = true });
+
+            addr_parameters.Add(new NpgsqlParameter("building_number", building_number == null ? DBNull.Value : building_number) { IsNullable = true });
+            addr_parameters.Add(new NpgsqlParameter("street_addr", street_addr));
+            addr_parameters.Add(new NpgsqlParameter("city", city));
+            addr_parameters.Add(new NpgsqlParameter("state_abrv", state_abrv == null ? DBNull.Value : state_abrv) { IsNullable = true });
+            addr_parameters.Add(new NpgsqlParameter("zipcode", zipcode));
+
+            string restCommandText = $"INSERT INTO restaurant VALUES (@id, " +
                 $"@name, @amenity, @cuisine, @opening_hours)";
+            string addrCommandText = $"INSERT INTO address VALUES (@id, " +
+                $"@building_number, @street_addr, @city, @state_abrv, @zipcode)";
             // query the database and add responses to a list
             List<Restaurant> queryResults = [];
             try
@@ -136,22 +148,32 @@ namespace resturantFinder.Controllers
                 await using var connection = await dataSource.OpenConnectionAsync();
                 await using var transaction = await connection.BeginTransactionAsync();
 
-                /*NpgsqlCommand getMaxID = new("SELECT MAX(locid) FROM restaurant", connection);
+                NpgsqlCommand getMaxID = new("SELECT MAX(locid) FROM restaurant", connection, transaction);
                 await using var id_reader = await getMaxID.ExecuteReaderAsync();
                 while (await id_reader.ReadAsync())
                 {
-                    parameters.Add(new NpgsqlParameter("id", id_reader.GetInt32(0) + 1));
+                    long id = id_reader.GetInt64(0) + 1;
+                    rest_parameters.Add(new NpgsqlParameter("id", id));
+                    addr_parameters.Add(new NpgsqlParameter("id", id));
                 }
-                await id_reader.CloseAsync();*/
+                await id_reader.CloseAsync();
 
-                await using NpgsqlCommand cmd = new(commandText, connection, transaction);
-                foreach (var parameter in parameters)
+                await using NpgsqlCommand rest_cmd = new(restCommandText, connection, transaction);
+                foreach (var parameter in rest_parameters)
                 {
-                    cmd.Parameters.Add(parameter);
+                    rest_cmd.Parameters.Add(parameter);
                 }
-                _logger.LogInformation($"Command: {cmd.CommandText}");
-                await cmd.ExecuteNonQueryAsync();
+                _logger.LogInformation($"Command: {rest_cmd.CommandText}");
+                await rest_cmd.ExecuteNonQueryAsync();
                 //await writer.ReadAsync();
+
+                await using NpgsqlCommand addr_cmd = new(addrCommandText, connection, transaction);
+                foreach (var parameter in addr_parameters)
+                {
+                    addr_cmd.Parameters.Add(parameter);
+                }
+                _logger.LogInformation($"Command: {addr_cmd.CommandText}");
+                await addr_cmd.ExecuteNonQueryAsync();
 
                 await transaction.CommitAsync();
             }
