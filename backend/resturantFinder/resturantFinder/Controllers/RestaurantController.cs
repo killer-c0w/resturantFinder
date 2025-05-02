@@ -15,9 +15,10 @@ namespace resturantFinder.Controllers
         }
 
         [HttpGet("GetRestaurants")]
-        public async Task<IEnumerable<Restaurant>?> GetRestaurantNoAddr(string? name = null, string? amenity = null, string? cuisine = null, string? opening_hours = null, string? city = null)
+        public async Task<IEnumerable<Restaurant>?> GetRestaurant(string? name = null, string? amenity = null, 
+            string? cuisine = null, string? city = null, string? zipcode = null)
         {
-            if (name == null & amenity == null & cuisine == null & opening_hours == null)
+            if (name == null & amenity == null & cuisine == null & city == null & zipcode == null)
             {
                 return null;
             }
@@ -37,24 +38,23 @@ namespace resturantFinder.Controllers
             if (amenity != null)
             {
                 conditions.Add("amenity LIKE @amenity");
-                parameters.Add(new NpgsqlParameter("amenity", $"%{amenity}%"));
+                parameters.Add(new NpgsqlParameter("amenity", $"%{amenity.Replace(' ','_')}%"));
             }
 
             if (cuisine != null)
             {
                 conditions.Add("cuisine LIKE @cuisine");
-                parameters.Add(new NpgsqlParameter("cuisine", $"%{cuisine}%"));
-            }
-
-            if (opening_hours != null)
-            {
-                conditions.Add("opening_hours LIKE @opening_hours");
-                parameters.Add(new NpgsqlParameter("opening_hours", $"%{opening_hours}%"));
+                parameters.Add(new NpgsqlParameter("cuisine", $"%{cuisine.Replace(' ', '_')}%"));
             }
             if (city != null)
             {
-                conditions.Add("city = @city");
-                parameters.Add(new NpgsqlParameter("city", city));
+                conditions.Add("city LIKE @city");
+                parameters.Add(new NpgsqlParameter("city", $"%{city}%"));
+            }
+            if (zipcode != null)
+            {
+                conditions.Add("zipcode = @zipcode");
+                parameters.Add(new NpgsqlParameter("zipcode", zipcode));
             }
 
             string commandText = $"SELECT * FROM restaurant NATURAL JOIN address WHERE {string.Join(" AND ", conditions)} ORDER BY locid";
@@ -117,7 +117,7 @@ namespace resturantFinder.Controllers
         {
             if (name == null || street_addr == null || city == null || zipcode == null)
             {
-                return BadRequest("Missing required parameters.");
+                return BadRequest("Missing required parameter(s).");
             }
             string connectionString = "Server=localhost;Database=AZRestaurantsDB;User Id=postgres;Password=password;";
             await using NpgsqlDataSource dataSource = NpgsqlDataSource.Create(connectionString);
@@ -127,8 +127,8 @@ namespace resturantFinder.Controllers
             List<NpgsqlParameter> addr_parameters = [];
 
             rest_parameters.Add(new NpgsqlParameter("name", name));
-            rest_parameters.Add(new NpgsqlParameter("amenity", amenity == null ? DBNull.Value : amenity) { IsNullable=true});
-            rest_parameters.Add(new NpgsqlParameter("cuisine", cuisine == null ? DBNull.Value : cuisine) { IsNullable = true });
+            rest_parameters.Add(new NpgsqlParameter("amenity", amenity == null ? DBNull.Value : amenity.Replace(' ', '_')) { IsNullable=true});
+            rest_parameters.Add(new NpgsqlParameter("cuisine", cuisine == null ? DBNull.Value : cuisine.Replace(' ', '_')) { IsNullable = true });
             rest_parameters.Add(new NpgsqlParameter("opening_hours", opening_hours == null ? DBNull.Value : opening_hours) { IsNullable = true });
 
             addr_parameters.Add(new NpgsqlParameter("building_number", building_number == null ? DBNull.Value : building_number) { IsNullable = true });
@@ -165,7 +165,6 @@ namespace resturantFinder.Controllers
                 }
                 _logger.LogInformation($"Command: {rest_cmd.CommandText}");
                 await rest_cmd.ExecuteNonQueryAsync();
-                //await writer.ReadAsync();
 
                 await using NpgsqlCommand addr_cmd = new(addrCommandText, connection, transaction);
                 foreach (var parameter in addr_parameters)
@@ -174,6 +173,48 @@ namespace resturantFinder.Controllers
                 }
                 _logger.LogInformation($"Command: {addr_cmd.CommandText}");
                 await addr_cmd.ExecuteNonQueryAsync();
+
+                await transaction.CommitAsync();
+            }
+            catch (NpgsqlException ex)
+            {
+                _logger.LogError(ex, "An error occurred while executing the query.");
+                return UnprocessableEntity("An error occurred while executing the query.");
+            }
+            finally
+            {
+                // Dispose of the data source
+                dataSource.Dispose();
+            }
+            return Ok();
+        }
+
+        [HttpGet("DeleteRestaurant")]
+        public async Task<IActionResult> DeleteRestaurant(long id)
+        {
+            string connectionString = "Server=localhost;Database=AZRestaurantsDB;User Id=postgres;Password=password;";
+            await using NpgsqlDataSource dataSource = NpgsqlDataSource.Create(connectionString);
+            // build the command based on supplied parameters
+            var values = new List<string>();
+            List<NpgsqlParameter> parameters = [];
+
+            parameters.Add(new NpgsqlParameter("id", id));
+
+            string restCommandText = "DELETE FROM restaurant WHERE locid = @id";
+            // query the database and add responses to a list
+            List<Restaurant> queryResults = [];
+            try
+            {
+                await using var connection = await dataSource.OpenConnectionAsync();
+                await using var transaction = await connection.BeginTransactionAsync();
+
+                await using NpgsqlCommand cmd = new(restCommandText, connection, transaction);
+                foreach (var parameter in parameters)
+                {
+                    cmd.Parameters.Add(parameter);
+                }
+                _logger.LogInformation($"Command: {cmd.CommandText}");
+                await cmd.ExecuteNonQueryAsync();
 
                 await transaction.CommitAsync();
             }
