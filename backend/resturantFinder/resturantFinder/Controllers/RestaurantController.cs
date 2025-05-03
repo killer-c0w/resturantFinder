@@ -113,7 +113,7 @@ namespace resturantFinder.Controllers
         [HttpGet("AddRestaurant")]
         public async Task<IActionResult> AddRestaurant(string name, string street_addr, string city, 
             string zipcode, string? amenity = null, string? cuisine = null, string? opening_hours = null, 
-            string? building_number = null, string? state_abrv = null)
+            int? building_number = null, string? state_abrv = null)
         {
             if (name == null || street_addr == null || city == null || zipcode == null)
             {
@@ -214,9 +214,14 @@ namespace resturantFinder.Controllers
                     cmd.Parameters.Add(parameter);
                 }
                 _logger.LogInformation($"Command: {cmd.CommandText}");
-                await cmd.ExecuteNonQueryAsync();
+                int effect = await cmd.ExecuteNonQueryAsync();
 
                 await transaction.CommitAsync();
+
+                if (effect == 0)
+                {
+                    return Conflict($"No restaurant with id '{id}' exists.");
+                }
             }
             catch (NpgsqlException ex)
             {
