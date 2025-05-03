@@ -17,6 +17,16 @@ function App() {
   //the state of the returned data
   const [results, setResults] = useState<Restaurant[]>([]);
 
+
+  const [searchForm, setSearchForm] = useState({
+    name: '',
+    amenity: '',
+    cuisine: '',
+    city: '',
+    zipcode: ''
+  });
+
+
   //the type displayed on the results bar using Restaurant.id .. etc only id name and address are mandatory to create the object
   type Restaurant = {
     id: number;
@@ -74,17 +84,20 @@ function App() {
 
   const handleSearchClick = async () => {
     //if blank popup 
-    if (!searchText.trim()) {
+    /*if (!searchText.trim()) {
       alert('Please enter a city, state abbreviation, or ZIP code');
       return;
-    }
+    }*/
     //setResults(dummy);
-    const params = new URLSearchParams({
-      city: searchText,
-      state_abrv: searchText,
-      zipcode: searchText
-    }).toString();
-  
+    
+    const sanitizedForm: Record<string, string | null> = {};
+    for (const [key, value] of Object.entries(searchForm)) {
+      sanitizedForm[key] = value.trim() === '' ? null : value;
+    }
+    
+    const params = new URLSearchParams(searchForm as Record<string, string>).toString();
+
+    
     try {
       const response = await fetch(`http://localhost:5000/Restaurant/GetRestaurants?${params}`);
   
@@ -134,6 +147,9 @@ function App() {
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
+  const handleSearchFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchForm({ ...searchForm, [e.target.name]: e.target.value });
+  };
 
   const handleInsertSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -177,19 +193,15 @@ function App() {
         <div className="mb-6 flex flex-col gap-4">
           {/* Search bar */}
           <div className="flex gap-4">
-            <input
-              type="text"
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              placeholder="city, state, or zip"
-              className="flex-1 px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <button
-              onClick={handleSearchClick}
-              className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            >
-              Search
-            </button>
+            <form onSubmit={(e) => { e.preventDefault(); handleSearchClick(); }} className="flex flex-wrap gap-2 items-center">
+              <input name="name" placeholder="Name" value={searchForm.name} onChange={handleSearchFormChange} className="p-2 border rounded w-40" />
+              <input name="amenity" placeholder="Amenity" value={searchForm.amenity} onChange={handleSearchFormChange} className="p-2 border rounded w-40" />
+              <input name="cuisine" placeholder="Cuisine" value={searchForm.cuisine} onChange={handleSearchFormChange} className="p-2 border rounded w-40" />
+              <input name="city" placeholder="City" value={searchForm.city} onChange={handleSearchFormChange} className="p-2 border rounded w-40" />
+              <input name="zipcode" placeholder="Zipcode" value={searchForm.zipcode} onChange={handleSearchFormChange} className="p-2 border rounded w-32" />
+              <button type="submit" className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">Search</button>
+            </form>
+            
           </div>
 
           {/* Action buttons */}
